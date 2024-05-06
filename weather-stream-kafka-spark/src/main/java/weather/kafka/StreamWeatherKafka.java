@@ -3,8 +3,14 @@ package weather.kafka;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
+import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.UpdateOptions;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.FileInputStream;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.List;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
@@ -12,14 +18,15 @@ import org.apache.spark.sql.streaming.StreamingQuery;
 import org.apache.spark.sql.streaming.Trigger;
 import org.apache.spark.api.java.function.MapFunction;
 import org.apache.spark.sql.Encoders;
-import java.io.FileInputStream;
-import java.util.HashMap;
-import java.util.Map;
 import org.apache.spark.api.java.function.ForeachFunction;
+import org.bson.Document;
+import org.bson.conversions.Bson;
+import com.mongodb.client.model.ReplaceOptions;
 
 class WeatherData {
     private String capital;
     private Double avgTempC;
+    private String date;
 
     public String getCapital() {
         return capital;
@@ -27,6 +34,14 @@ class WeatherData {
 
     public void setCapital(String capital) {
         this.capital = capital;
+    }
+
+    public String getDate() {
+        return date;
+    }
+
+    public void setDate(String date) {
+        this.date = date;
     }
 
     public Double getAvgTempC() {
@@ -64,60 +79,55 @@ public class StreamWeatherKafka {
             WeatherData data = new WeatherData();
             data.setCapital(parts[1]);
             data.setAvgTempC(Double.parseDouble(parts[4]));
+            data.setDate(parts[2]);
             return data;
         }, Encoders.bean(WeatherData.class));
 
         df.createOrReplaceTempView("my_table");
 
         Dataset<Row> maxTemp = spark
-                .sql("SELECT capital, MAX(avgTempC) as max_temp FROM my_table GROUP BY capital");
+                .sql("SELECT capital, MAX(avgTempC) as max_temp, MAX(date) as latest_date FROM my_table GROUP BY capital");
 
-        // try {
-        // FileInputStream serviceAccount = new FileInputStream("bigdata.json");
-
-        // FirebaseOptions options = new FirebaseOptions.Builder()
-        // .setCredentials(GoogleCredentials.fromStream(serviceAccount))
-        // .setDatabaseUrl("https://bigdata-e23f0-default-rtdb.firebaseio.com")
-        // .build();
-
-        // FirebaseApp.initializeApp(options);
-        // // Get a reference to the database
-
-        // FirebaseDatabase database = FirebaseDatabase.getInstance();
-        // DatabaseReference ref = database.getReference("data");
-        // maxTemp.foreach((ForeachFunction<Row>) row -> {
-        // Map<String, Object> data = new HashMap<>();
-        // data.put("capital", row.getString(0));
-        // data.put("max_temp", row.getDouble(1));
-        // ref.push().setValueAsync(data);
-        // });
-        // System.out.println("Data pushed to Firebase");
-
-        // } catch (Exception e) {
-        // e.printStackTrace();
-        // return;
-        // }
         String mongoUri = "mongodb+srv://admin:1234@cluster0.iunwbji.mongodb.net/";
         String mongoDatabase = "bigdata";
-        String mongoCollection = "weather";
+        String mongoCollection = "weather_stream";
         StreamingQuery query = maxTemp
                 .writeStream()
                 .outputMode("complete")
                 .foreachBatch((batchDF, batchId) -> {
-                    batchDF.write()
-                            .format("mongo")
-                            .option("uri", mongoUri)
-                            .option("database", mongoDatabase)
-                            .option("collection", mongoCollection)
-                            .mode("append")
-                            .save();
+                    MongoClient mongoClient = MongoClients.create(mongoUri);
+                    MongoCollection<Document> collection = mongoClient.getDatabase(mongoDatabase)
+                            .getCollection(mongoCollection);
+
+                    List<Row> rowList = batchDF.collectAsList();
+                    for (Row row : rowList) {
+                        String capital = row.getAs("capital");
+                        Double max_temp = row.getAs("max_temp");
+                        String latest_date = row.getAs("latest_date");
+
+                        Document document = new Document();
+                        document.append("capital", capital);
+                        document.append("max_temp", max_temp);
+                        document.append("latest_date", latest_date);
+
+                        Bson filter = Filters.eq("capital", capital);
+                        ReplaceOptions options = new ReplaceOptions().upsert(true);
+                        collection.replaceOne(filter, document, options);
+                    }
+                    mongoClient.close();
                 })
+
+                // .foreachBatch((batchDF, batchId) -> {
+                // batchDF.write()
+                // .format("mongo")
+                // .option("uri", mongoUri)
+                // .option("database", mongoDatabase)
+                // .option("collection", mongoCollection)
+                // .mode("append")
+                // .save();
+                // })
                 .trigger(Trigger.ProcessingTime("1 second"))
                 .start();
-
-        // format("console")
-        // .trigger(Trigger.ProcessingTime("1 second")).start();
-
         query.awaitTermination();
     }
 }
