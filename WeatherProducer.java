@@ -4,7 +4,6 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -21,8 +20,6 @@ public class WeatherProducer {
 
       List<String> dataAfter2023 = readCSVDataAfter2023();
 
-      Collections.sort(dataAfter2023);
-
       Timer timer = new Timer();
       for (int i = 0; i < dataAfter2023.size(); i++) {
          final int index = i;
@@ -31,7 +28,7 @@ public class WeatherProducer {
             public void run() {
                sendRecord(topicName, dataAfter2023.get(index));
             }
-         }, i * 1000);
+         }, i * 500);
       }
    }
 
