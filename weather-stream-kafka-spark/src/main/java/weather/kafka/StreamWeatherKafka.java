@@ -27,6 +27,15 @@ class WeatherData {
     private String capital;
     private Double avgTempC;
     private String date;
+    private String country;
+
+    public String getCountry() {
+        return this.country;
+    }
+
+    public void setCountry(String country) {
+        this.country = country;
+    }
 
     public String getCapital() {
         return capital;
@@ -80,6 +89,7 @@ public class StreamWeatherKafka {
             data.setCapital(parts[1]);
             data.setAvgTempC(Double.parseDouble(parts[4]));
             data.setDate(parts[2]);
+            data.setCountry(parts[0]);
             return data;
         }, Encoders.bean(WeatherData.class));
 
@@ -104,11 +114,13 @@ public class StreamWeatherKafka {
                         String capital = row.getAs("capital");
                         Double max_temp = row.getAs("max_temp");
                         String latest_date = row.getAs("latest_date");
+                        String country = row.getAs("country");
 
                         Document document = new Document();
                         document.append("capital", capital);
                         document.append("max_temp", max_temp);
                         document.append("latest_date", latest_date);
+                        document.append("country", country);
 
                         Bson filter = Filters.eq("capital", capital);
                         ReplaceOptions options = new ReplaceOptions().upsert(true);
@@ -116,16 +128,6 @@ public class StreamWeatherKafka {
                     }
                     mongoClient.close();
                 })
-
-                // .foreachBatch((batchDF, batchId) -> {
-                // batchDF.write()
-                // .format("mongo")
-                // .option("uri", mongoUri)
-                // .option("database", mongoDatabase)
-                // .option("collection", mongoCollection)
-                // .mode("append")
-                // .save();
-                // })
                 .trigger(Trigger.ProcessingTime("1 second"))
                 .start();
         query.awaitTermination();
