@@ -96,7 +96,7 @@ public class StreamWeatherKafka {
         df.createOrReplaceTempView("my_table");
 
         Dataset<Row> maxTemp = spark
-                .sql("SELECT capital, MAX(avgTempC) as max_temp, MAX(date) as latest_date FROM my_table GROUP BY capital");
+                .sql("SELECT MAX(capital) AS capital, MAX(avgTempC) as max_temp, MAX(date) as latest_date FROM my_table GROUP BY capital");
 
         String mongoUri = "mongodb+srv://admin:1234@cluster0.iunwbji.mongodb.net/";
         String mongoDatabase = "bigdata";
